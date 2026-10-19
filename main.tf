@@ -1,16 +1,22 @@
-
 terraform {
- required_providers {
- docker = {
- source = "kreuzwerker/docker"
- version = "~> 3.0"
- }
- }
- }
-provider "docker" {}
-resource "docker_image" "nginx" {
- name = "nginx:latest"
+  required_providers {
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
+    }
+  }
 }
+
+provider "docker" {}
+
+resource "docker_network" "monitoring" {
+  name = "monitoring-net"
+}
+
+resource "docker_image" "nginx" {
+  name = "nginx:latest"
+}
+
 resource "docker_container" "web" {
   name  = "meu-container-web"
   image = docker_image.nginx.image_id
@@ -23,7 +29,11 @@ resource "docker_container" "web" {
     container_path = "/usr/share/nginx/html"
     read_only      = true
   }
+  networks_advanced {
+    name = docker_network.monitoring.name
+  }
 }
+
 resource "docker_volume" "db_data" {
   name = "meu-projeto-db-data"
 }
@@ -43,5 +53,84 @@ resource "docker_container" "db" {
   volumes {
     volume_name    = docker_volume.db_data.name
     container_path = "/var/lib/postgresql/data"
+  }
+}
+
+resource "docker_container" "cadvisor" {
+  name       = "cadvisor"
+  image      = "gcr.io/cadvisor/cadvisor:latest"
+  privileged = true
+  ports {
+    internal = 8080
+    external = 8081
+  }
+  volumes {
+    host_path      = "/"
+    container_path = "/rootfs"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/var/run"
+    container_path = "/var/run"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/sys"
+    container_path = "/sys"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/var/lib/docker"
+    container_path = "/var/lib/docker"
+    read_only      = true
+  }
+  volumes {
+    host_path      = "/dev/disk"
+    container_path = "/dev/disk"
+    read_only      = true
+  }
+  devices {
+    host_path      = "/dev/kmsg"
+    container_path = "/dev/kmsg"
+    permissions    = "rwm"
+  }
+  networks_advanced {
+    name = docker_network.monitoring.name
+  }
+}
+
+resource "docker_image" "prometheus" {
+  name = "prom/prometheus:latest"
+}
+
+resource "docker_container" "prometheus" {
+  name  = "prometheus"
+  image = docker_image.prometheus.image_id
+  ports {
+    internal = 9090
+    external = 9090
+  }
+  volumes {
+    host_path      = "${path.cwd}/prometheus.yml"
+    container_path = "/etc/prometheus/prometheus.yml"
+  }
+  networks_advanced {
+    name = docker_network.monitoring.name
+  }
+}
+
+resource "docker_image" "grafana" {
+  name = "grafana/grafana:latest"
+}
+
+resource "docker_container" "grafana" {
+  name  = "grafana"
+  image = docker_image.grafana.image_id
+  ports {
+    internal = 3000
+    external = 3000
+  }
+  networks_advanced {
+    name = docker_network.monitoring.name
   }
 }
